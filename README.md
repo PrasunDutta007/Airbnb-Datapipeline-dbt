@@ -1,4 +1,13 @@
+<table border="0" cellspacing="0" cellpadding="10">
+<tr>
+<td><img src="img/booking.gif" width="80" height="80"/></td>
+<td>
+
 # Airbnb Data Pipeline (dbt)
+
+</td>
+</tr>
+</table>
 
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)
 ![dbt](https://img.shields.io/badge/dbt--core-1.11.9-FF694B?style=flat-square&logo=dbt&logoColor=white)
@@ -854,6 +863,11 @@ dbt test
 
 ---
 
-*Built by Prasun Dutta*
+<p align="center">
+  Built by Prasun Dutta · Assisted by <a href="https://code.claude.com/docs/en/overview">Claude Code</a>
+</p>
 
 ---
+<p align="center">
+  <sub>Animated icons by <a href="https://www.flaticon.com/free-animated-icons/booking" title="Booking animated icons">Booking animated icons created by Freepik - Flaticon</a></sub>
+</p>
