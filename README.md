@@ -1,4 +1,4 @@
-# Airbnb Data Pipeline — AWS · Snowflake · dbt
+# Airbnb Data Pipeline (dbt)
 
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)
 ![dbt](https://img.shields.io/badge/dbt--core-1.11.9-FF694B?style=flat-square&logo=dbt&logoColor=white)
@@ -17,8 +17,8 @@
 - [Project Structure](#project-structure)
 - [Source Data & DDL](#source-data--ddl)
   - [Source Files (AWS S3)](#source-files-aws-s3)
-  - [DDL — Staging Tables](#ddl--staging-tables)
-  - [DDL — AWS–Snowflake Connection](#ddl--awssnowflake-connection)
+  - [DDL - Staging Tables](#ddl--staging-tables)
+  - [DDL - AWS–Snowflake Connection](#ddl--awssnowflake-connection)
 - [Installation and Setup](#installation-and-setup)
   - [1. Prerequisites](#1-prerequisites)
   - [2. Clone & Bootstrap with uv](#2-clone--bootstrap-with-uv)
@@ -40,13 +40,13 @@
 
 ## Introduction
 
-This project models a real-world rental platform's data estate. Three core entities — **Hosts**, **Listings**, and **Bookings** — are sourced from AWS S3 as CSVs, landed into Snowflake's `STAGING` schema, and progressively refined across three dbt medallion layers before surfacing as analyst-ready Gold tables.
+This project models a real-world rental platform's data estate. Three core entities - **Hosts**, **Listings**, and **Bookings** - are sourced from AWS S3 as CSVs, landed into Snowflake's `STAGING` schema, and progressively refined across three dbt medallion layers before surfacing as analyst-ready Gold tables.
 
 The pipeline demonstrates several production dbt patterns in a single coherent project:
 
 - **Incremental loading** with watermark-based deduplication at every layer
 - **Custom macros** for reusable business logic (`multiply`, `tag`, `generate_schema_name`)
-- **Jinja-driven dynamic SQL** in the OBT and Fact models — table lists and join conditions are loop-generated from a Python-style list of dicts
+- **Jinja-driven dynamic SQL** in the OBT and Fact models - table lists and join conditions are loop-generated from a Python-style list of dicts
 - **Ephemeral models** as intermediate, no-materialisation CTEs feeding into snapshots
 - **SCD Type 2 snapshots** on all three dimensions using dbt's timestamp strategy
 - **Star schema** with a Fact table joining OBT metrics to dimension snapshots
@@ -91,7 +91,7 @@ The pipeline demonstrates several production dbt patterns in a single coherent p
 ## Project Structure
 
 ```
-airbnb-datapipeline-aws/
+airbnb-datapipeline-dbt/
 │
 ├── Source_Data/                        # Raw CSV source files uploaded to AWS S3
 │   ├── hosts.csv
@@ -397,7 +397,7 @@ models:
         +materialized: ephemeral   # no table written; inlined as CTE at query time
 ```
 
-The `generate_schema_name` macro (in `macros/generate_schema_name.sql`) overrides dbt's default behaviour of prepending the target schema to every custom schema. Without it, dbt would produce `DEV_BRONZE` instead of the clean `BRONZE` schema name:
+The `generate_schema_name` macro (in `macros/generate_schema_name.sql`) overrides dbt's default behaviour of prepending the target schema to every custom schema. Without it, dbt would produce `DBT_BRONZE` instead of the clean `BRONZE` schema name:
 
 ```sql
 {% macro generate_schema_name(custom_schema_name, node) -%}
