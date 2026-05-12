@@ -281,14 +281,14 @@ Every Bronze model references these sources directly via `{{ source('staging', '
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-username/airbnb-datapipeline-aws.git
-cd airbnb-datapipeline-aws
+git clone https://github.com/PrasunDutta007/Airbnb-Datapipeline-dbt.git
+cd Airbnb-Datapipeline-dbt
 
 # 2. Install uv (if not already installed)
 pip install uv
 
 # 3. Create the virtual environment and install all dependencies
-#    uv reads pyproject.toml — dbt-core and dbt-snowflake are declared there
+#    uv reads pyproject.toml - dbt-core and dbt-snowflake are declared there
 uv sync
 
 # 4. Activate the environment
@@ -311,7 +311,7 @@ dependencies    = [
 ]
 ```
 
-`uv.lock` pins every transitive dependency (560+ packages) — ensuring identical installs across machines and CI environments.
+`uv.lock` pins every transitive dependency (560+ packages) - ensuring identical installs across machines and CI environments.
 
 ---
 
@@ -337,8 +337,6 @@ aws_snowflake_dbt_project:
 ```
 
 **Why `profiles.yml` is critical:** the `profile` key in `dbt_project.yml` (`profile: 'aws_snowflake_dbt_project'`) must match the top-level key in `profiles.yml` exactly. A mismatch causes `dbt debug` to fail before any model runs.
-
-**`.user.yml`** is a companion file that stores local user preferences such as `send_anonymous_usage_stats: false`. It is per-developer and also gitignored.
 
 ---
 
