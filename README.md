@@ -18,22 +18,22 @@
 - [Source Data & DDL](#source-data--ddl)
   - [Source Files (AWS S3)](#source-files-aws-s3)
   - [DDL - Staging Tables](#ddl--staging-tables)
-  - [DDL - AWS–Snowflake Connection](#ddl--awssnowflake-connection)
+  - [DDL - AWS-Snowflake Connection](#ddl--awssnowflake-connection)
 - [Installation and Setup](#installation-and-setup)
   - [1. Prerequisites](#1-prerequisites)
   - [2. Clone & Bootstrap with uv](#2-clone--bootstrap-with-uv)
-  - [3. Configure Snowflake Connection — profiles.yml](#3-configure-snowflake-connection--profilesyml)
+  - [3. Configure Snowflake Connection - profiles.yml](#3-configure-snowflake-connection--profilesyml)
   - [4. Initialise dbt & Verify Connection](#4-initialise-dbt--verify-connection)
-  - [5. dbt_project.yml — Global Model Configuration](#5-dbt_projectyml--global-model-configuration)
+  - [5. dbt_project.yml - Global Model Configuration](#5-dbt_projectyml--global-model-configuration)
 - [Pipeline Walkthrough](#pipeline-walkthrough)
-- [Deep Dive](#deep-dive)
-  - [1. Bronze Layer — Raw Incremental Ingestion](#1-bronze-layer--raw-incremental-ingestion)
-  - [2. Silver Layer — Cleansed & Enriched](#2-silver-layer--cleansed--enriched)
-  - [3. Gold Layer — Analytics-Ready Models](#3-gold-layer--analytics-ready-models)
-  - [4. Jinja Templating](#4-jinja-templating)
-  - [5. Macros](#5-macros)
-  - [6. Snapshots — SCD Type 2](#6-snapshots--scd-type-2)
-  - [7. Testing](#7-testing)
+- [Deep Dive - Pipeline Layers](#deep-dive--pipeline-layers)
+  - [1. Bronze Layer - Raw Incremental Ingestion](#1-bronze-layer--raw-incremental-ingestion)
+  - [2. Silver Layer - Cleansed & Enriched](#2-silver-layer--cleansed--enriched)
+  - [3. Gold Layer - Analytics-Ready Models](#3-gold-layer--analytics-ready-models)
+- [Jinja Templating](#jinja-templating)
+- [Macros](#macros)
+- [Snapshots - SCD Type 2](#snapshots--scd-type-2)
+- [Testing](#testing)
 - [Key Engineering Decisions](#key-engineering-decisions)
 
 ---
@@ -56,35 +56,8 @@ The pipeline demonstrates several production dbt patterns in a single coherent p
 
 ## Architecture
 
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                            DATA FLOW                                         │
-│                                                                              │
-│  AWS S3 (CSV files)                                                          │
-│  hosts.csv / listings.csv / bookings.csv                                     │
-│       │                                                                      │
-│       │  Snowflake External Stage + COPY INTO                                │
-│       ▼                                                                      │
-│  AIRBNB.STAGING  (raw tables — hosts, listings, bookings)                    │
-│       │                                                                      │
-│       │  dbt sources.yml → ref() lineage                                     │
-│       ▼                                                                      │
-│  AIRBNB.BRONZE   (incremental, full-row, no transforms)                      │
-│       │                                                                      │
-│       │  dbt incremental models + custom macros                              │
-│       ▼                                                                      │
-│  AIRBNB.SILVER   (cleansed, enriched, RESPONSE_RATE banded)                 │
-│       │                                                                      │
-│       │  Jinja loop-driven SQL + ephemeral intermediaries                    │
-│       ▼                                                                      │
-│  AIRBNB.GOLD     OBT  ──►  Ephemeral (hosts / listings / bookings)          │
-│                       ──►  Snapshots (DIM_HOSTS / DIM_LISTINGS /             │
-│                                       DIM_BOOKINGS)  [SCD Type 2]           │
-│                       ──►  FACT table (Star Schema)                          │
-└──────────────────────────────────────────────────────────────────────────────┘
-```
-
-![Project environment — folder structure and terminal output](img/environment.png)
+![Architecture](img/architecture.png)
+*End-to-end pipeline architecture — AWS S3 → Snowflake Staging → dbt Bronze / Silver / Gold medallion layers*
 
 ---
 
@@ -144,6 +117,9 @@ airbnb-datapipeline-dbt/
 ├── .gitignore
 └── README.md
 ```
+
+![Project environment — folder structure and terminal output](img/environment.png)
+*VSCode workspace showing the full dbt project tree alongside a successful `dbt run --select gold` terminal output — 2 models built in 70s*
 
 ---
 
@@ -444,7 +420,7 @@ AIRBNB.GOLD.OBT  (One Big Table — 25 columns, Jinja loop joins)
 
 ---
 
-## Deep Dive
+## Deep Dive — Pipeline Layers
 
 ---
 
@@ -472,10 +448,13 @@ SELECT * FROM {{ source('staging', 'hosts') }}
 **Why `SELECT *` in Bronze:** Bronze is intentionally a raw copy. Column-level transforms belong in Silver, not here. This ensures the Bronze table can always re-derive Silver from scratch without touching the source, and makes schema evolution trivial — adding a column to the CSV requires only a DDL `ALTER TABLE` on the staging table, and Bronze picks it up automatically.
 
 ![BRONZE_BOOKINGS — raw incremental table](img/bronze_bookings.png)
+*`AIRBNB.BRONZE.BRONZE_BOOKINGS` — raw booking records as loaded from staging, no transforms applied*
 
 ![BRONZE_HOSTS — raw incremental table](img/bronze_hosts.png)
+*`AIRBNB.BRONZE.BRONZE_HOSTS` — raw host records incrementally appended from `STAGING.HOSTS`*
 
 ![BRONZE_LISTINGS — raw incremental table](img/bronze_listings.png)
+*`AIRBNB.BRONZE.BRONZE_LISTINGS` — raw listing records including all property and pricing fields*
 
 ---
 
@@ -507,6 +486,7 @@ FROM {{ ref('bronze_hosts') }}
 `HOST_NAME` spaces are replaced with underscores for downstream join safety. `RESPONSE_RATE_QUALITY` buckets the raw numeric score into four human-readable bands — this derived column is surfaced all the way into the Fact table.
 
 ![SILVER_HOSTS — enriched with RESPONSE_RATE_QUALITY](img/silver_hosts.png)
+*`AIRBNB.SILVER.SILVER_HOSTS` — `HOST_NAME` normalised and `RESPONSE_RATE` banded into `RESPONSE_RATE_QUALITY` (VERY GOOD / GOOD / FAIR / POOR)*
 
 #### `silver_listings.sql`
 
@@ -522,9 +502,10 @@ SELECT
 FROM {{ ref('bronze_listings') }}
 ```
 
-The `{{ tag(...) }}` macro bins `PRICE_PER_NIGHT` into `low` / `medium` / `high` — a reusable classification that appears on both the Silver table and the downstream OBT. See [Macros](#4-macros) for the implementation.
+The `{{ tag(...) }}` macro bins `PRICE_PER_NIGHT` into `low` / `medium` / `high` — a reusable classification that appears on both the Silver table and the downstream OBT. See [Macros](#macros) for the implementation.
 
 ![SILVER_LISTINGS — enriched with PRICE_PER_NIGHT_TAG](img/silver_listings.png)
+*`AIRBNB.SILVER.SILVER_LISTINGS` — `PRICE_PER_NIGHT_TAG` derived via the `{{ tag() }}` macro, classifying nightly rates as low / medium / high*
 
 #### `silver_bookings.sql`
 
@@ -541,12 +522,13 @@ FROM {{ ref('bronze_bookings') }}
 `TOTAL_AMOUNT` — the true cost of a stay — is computed as `NIGHTS_BOOKED × BOOKING_AMOUNT` via the `{{ multiply() }}` macro, rounded to 2 decimal places. The raw `BOOKING_AMOUNT` in the source is a per-night rate; multiplying by nights gives the full booking value.
 
 ![SILVER_BOOKINGS — TOTAL_AMOUNT derived via multiply macro](img/silver_bookings.png)
+*`AIRBNB.SILVER.SILVER_BOOKINGS` — `TOTAL_AMOUNT` computed as `NIGHTS_BOOKED × BOOKING_AMOUNT` via the `{{ multiply() }}` macro*
 
 ---
 
 ### 3. Gold Layer — Analytics-Ready Models
 
-The Gold layer is where all Silver entities converge. It produces three types of output: an OBT, ephemeral intermediate models, SCD Type 2 dimension snapshots, and a Fact table.
+The Gold layer is where all Silver entities converge. It produces four types of output: a One Big Table, ephemeral domain slices, SCD Type 2 dimension snapshots, and a Fact table.
 
 #### One Big Table (OBT) — `obt.sql`
 
@@ -591,6 +573,7 @@ FROM
 The OBT materialises as a full `table` in `AIRBNB.GOLD` with 25 columns and 25,000 rows — it is the single source of truth from which ephemeral slices and the Fact table are derived.
 
 ![GOLD.OBT — 25 columns, all three Silver entities joined](img/gold_obt.png)
+*`AIRBNB.GOLD.OBT` — 25-column denormalised table joining Silver Bookings, Listings, and Hosts via Jinja loop-generated SQL*
 
 ---
 
@@ -614,43 +597,6 @@ SELECT * FROM listings
 ```
 
 **Why ephemeral?** Materialising intermediate models as views or tables would create unnecessary objects in Snowflake and pollute the Gold schema with transitional artefacts that analysts should never query directly. Ephemeral keeps the schema clean while preserving the lineage graph.
-
----
-
-#### Snapshots — SCD Type 2 Dimensions
-
-The three snapshot definitions in `snapshots/` convert the ephemeral slices into full Slowly Changing Dimension tables with dbt-managed validity tracking.
-
-```yaml
-# snapshots/dim_listings.yml
-snapshots:
-  - name: dim_listings
-    relation: ref('listings')       # reads from the ephemeral listings CTE
-    config:
-      schema: gold
-      database: AIRBNB
-      unique_key: LISTING_ID
-      strategy: timestamp
-      updated_at: LISTING_CREATED_AT
-      dbt_valid_to_current: "to_date('9999-12-31')"
-```
-
-dbt adds four system columns to every snapshot table:
-
-| Column | Meaning |
-|---|---|
-| `DBT_SCD_ID` | Unique surrogate key for each version row |
-| `DBT_UPDATED_AT` | Timestamp of when this version was created |
-| `DBT_VALID_FROM` | Start of this record's validity window |
-| `DBT_VALID_TO` | End of validity — `9999-12-31` for the current active row |
-
-The `timestamp` strategy compares `LISTING_CREATED_AT` between snapshot runs. If the value changes, dbt closes the old row (sets `DBT_VALID_TO` to now) and inserts a new active row. This allows analysts to reconstruct the state of any dimension at any point in history.
-
-![DIM_BOOKINGS — SCD Type 2 with DBT_VALID_FROM / TO columns](img/dim_bookings.png)
-
-![DIM_LISTINGS — SCD Type 2 snapshot in GOLD schema](img/dim_listings.png)
-
-![DIM_HOSTS — SCD Type 2 with response rate quality history](img/dim_hosts.png)
 
 ---
 
@@ -686,10 +632,11 @@ The `timestamp` strategy compares `LISTING_CREATED_AT` between snapshot runs. If
 The Fact table joins OBT booking metrics to `DIM_LISTINGS` and `DIM_HOSTS` — giving analysts a star schema with foreign-key relationships to the full SCD Type 2 dimension history. Only the OBT's columns are selected; the dimension tables provide the join context for downstream BI filters.
 
 ![GOLD.FACT — Star Schema metrics joined to dimension snapshots](img/fact.png)
+*`AIRBNB.GOLD.FACT` — Star Schema fact table surfacing 11 booking metric columns joined to `DIM_LISTINGS` and `DIM_HOSTS` snapshot dimensions*
 
 ---
 
-### 4. Jinja Templating
+## Jinja Templating
 
 Jinja is not just a convenience in this project — it is the reason the SQL stays maintainable as the data model grows. dbt compiles every `.sql` file through Jinja before sending it to Snowflake, which means the SQL you write is a *template* that generates the final SQL at runtime. This enables three things that raw SQL simply cannot do cleanly: reusable logic (macros), conditional branching (incremental guards), and data-driven query generation (loop-built joins).
 
@@ -759,7 +706,7 @@ Jinja in dbt reflects a broader engineering principle: **SQL is data, not just a
 
 ---
 
-### 5. Macros
+## Macros
 
 Three custom macros live in `macros/` and are used across the Silver and Gold layers.
 
@@ -813,14 +760,37 @@ Without this override, dbt prefixes every custom schema with the target schema f
 
 ---
 
-### 6. Snapshots — SCD Type 2
+## Snapshots — SCD Type 2
 
-Running `dbt snapshot` processes all three YAML-defined snapshot configs. Each snapshot:
+The three snapshot definitions in `snapshots/` convert ephemeral domain slices into full Slowly Changing Dimension tables with dbt-managed validity tracking. Running `dbt snapshot` processes all three. Each snapshot:
 
 1. Reads from its `relation:` (an ephemeral model referencing the OBT)
 2. Compares the current state to the previous snapshot using the `updated_at` timestamp
 3. Writes new version rows for changed records and keeps existing rows immutable
 4. Sets `DBT_VALID_TO = '9999-12-31'` on the currently active version of every record
+
+```yaml
+# snapshots/dim_listings.yml
+snapshots:
+  - name: dim_listings
+    relation: ref('listings')       # reads from the ephemeral listings CTE
+    config:
+      schema: gold
+      database: AIRBNB
+      unique_key: LISTING_ID
+      strategy: timestamp
+      updated_at: LISTING_CREATED_AT
+      dbt_valid_to_current: "to_date('9999-12-31')"
+```
+
+dbt adds four system columns to every snapshot table:
+
+| Column | Meaning |
+|---|---|
+| `DBT_SCD_ID` | Unique surrogate key for each version row |
+| `DBT_UPDATED_AT` | Timestamp of when this version was created |
+| `DBT_VALID_FROM` | Start of this record's validity window |
+| `DBT_VALID_TO` | End of validity — `9999-12-31` for the current active row |
 
 This gives the Gold schema full historical dimension tables — analysts can filter `WHERE DBT_VALID_TO = '9999-12-31'` for current state, or use `BETWEEN DBT_VALID_FROM AND DBT_VALID_TO` for point-in-time queries.
 
@@ -832,11 +802,20 @@ dbt snapshot
 dbt snapshot --select dim_hosts
 ```
 
+![DIM_BOOKINGS — SCD Type 2 with DBT_VALID_FROM / TO columns](img/dim_bookings.png)
+*`AIRBNB.GOLD.DIM_BOOKINGS` — SCD Type 2 snapshot with dbt-managed `DBT_SCD_ID`, `DBT_VALID_FROM`, and `DBT_VALID_TO` columns; active rows carry `DBT_VALID_TO = 9999-12-31`*
+
+![DIM_LISTINGS — SCD Type 2 snapshot in GOLD schema](img/dim_listings.png)
+*`AIRBNB.GOLD.DIM_LISTINGS` — SCD Type 2 snapshot tracking historical changes to listing attributes including `PRICE_PER_NIGHT_TAG`*
+
+![DIM_HOSTS — SCD Type 2 with response rate quality history](img/dim_hosts.png)
+*`AIRBNB.GOLD.DIM_HOSTS` — SCD Type 2 snapshot preserving full history of host response rate changes; `RESPONSE_RATE_QUALITY` bands are versioned alongside the raw score*
+
 ---
 
-### 7. Testing
+## Testing
 
-`tests/source_tests.sql` implements a custom dbt singular test that checks the booking data quality directly against the `STAGING` source:
+`tests/source_tests.sql` implements a custom dbt singular test that checks booking data quality directly against the `STAGING` source:
 
 ```sql
 {{ config(severity='warn') }}
@@ -848,9 +827,12 @@ WHERE BOOKING_AMOUNT < 200
 
 This test returns one row per suspicious booking (amount under 200) and is configured with `severity='warn'` — meaning `dbt test` completes successfully but surfaces a warning with the count of affected rows rather than failing the pipeline. This is appropriate for a data quality signal that analysts should be aware of but that shouldn't block model execution.
 
-![dbt test — 286 low-amount bookings flagged as WARN](img/test.png)
+```bash
+dbt test
+```
 
-The test run above shows: `PASS=0 WARN=1 ERROR=0` — exactly the expected behaviour for a severity-warn test that finds 286 rows matching the condition.
+![dbt test — 286 low-amount bookings flagged as WARN](img/test.png)
+*`dbt test` output — 286 bookings with `BOOKING_AMOUNT < 200` flagged as `WARN 286`; pipeline completes with `PASS=0 WARN=1 ERROR=0`, intentionally non-blocking*
 
 ---
 
@@ -873,3 +855,5 @@ The test run above shows: `PASS=0 WARN=1 ERROR=0` — exactly the expected behav
 ---
 
 *Built by Prasun Dutta*
+
+---
